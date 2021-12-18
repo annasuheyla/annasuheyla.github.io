@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Crowd Control</title>
+<style>
+html, body {
+  margin: 0;
+  padding: 0;
+  background: #FF2D21;
+}
+#stage {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-evenly;
+  align-items: center;
+  width: 100vw;
+  height: 100vh;
+}
+#yt-left, #yt-right {
+  filter: grayscale(100%);
+  mix-blend-mode: multiply;
+}
+#controls {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+}
+#camera, #helper-canvas {
+  display: none;
+}
+#toggle {
+  background-color: transparent;
+  background-image: url('play.png');
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center center;
+  border: none;
+  width: 5vw;
+  height: 5vw;
+  color: transparent;
+  cursor: pointer;
+  transition: transform 0.1s ease-in;
+}
+#toggle:hover {
+  transform: rotate(4deg) scale(1.1);
+}
+#toggle.paused {
+  background-image: url('play.png');
+}
+#toggle.playing {
+  background-image: url('pause.png');
+}
+</style>
+</head>
+<body>
+  <div id="stage">
+    <div id="yt-left"></div>
+    <div id="yt-right"></div>
+  </div>
+  <div id="controls">
+    <button id="toggle">Play</button>
+  </div>
+<canvas id="helper-canvas"></canvas>
+<video id="camera" autoplay></video>
+
+<script type="module">
+const pixelSize = 7
+const dimX = Math.floor(window.innerWidth / (pixelSize + 1)), dimY = Math.floor(window.innerHeight / (pixelSize + 1))
+
+const helperCanvas = document.getElementById('helper-canvas')
+const helperCtx = helperCanvas.getContext('2d')
+helperCanvas.width = dimX
+helperCanvas.height = dimY
+
+function initGame(x, y, initCell) {
+  initCell = initCell || function () { return 0 }
+
+  let matrix = new Array(y)
+  for (let row = 0; row < y; row++) {
+    matrix[row] = new Array(x)
+    for (let col = 0; col < x; col++) {
+      const val = initCell(col, row)
+      matrix[row][col] = val
+    }
+  }
+
+  return matrix
+}
+
+let currentMotion = initGame(dimX, dimY, (x, y) => 0)
+let prevVideo = initGame(dimX, dimY, (x, y) => 0)
+let video = document.querySelector('video')
+let firstFrame = true
+
+let timesLeftWasBigger = 0
+let timesRightWasBigger = 0
+let sumLeft = 0
+let statsLeft = { mean: 0, variance: 0, stdev: 0 }
+let statsRight = { mean: 0, variance: 0, stdev: 0 }
+let sumRight = 0
+let color = 'grey'
+
+let isPlaying
+let ytLeft, ytRight
+
+function updateStats(n, value, stats) {
+  let alpha = 1/n
+  stats.mean = stats.mean * (1 - alpha) + value * alpha
+  let diff = value - stats.mean
+  stats.variance = stats.variance * (1 - alpha) + diff*diff * alpha
+  stats.stdev = Math.sqrt(stats.variance)
+}
+
+let count = 0
+let lastMouseMove = null
+
+
+function draw() {
+  const toggle = document.getElementById('toggle')
+  if (isPlaying) {
+    toggle.className = "playing"
+    toggle.style.opacity = Date.now() - lastMouseMove > 3000 ? '0' : '1'
+  } else {
+    toggle.className = "paused"
+    toggle.style.opacity = '1'
+    return
+  }
+
+  const ratioLeft = statsLeft.mean/(statsLeft.mean + statsRight.mean)
+  const ratioRight = statsRight.mean/(statsLeft.mean + statsRight.mean)
+
+  ytLeft && ytLeft.setVolume(100 * ease(ratioLeft))
+  ytRight && ytRight.setVolume(100 * ease(ratioRight))
+
+  document.getElementById('yt-left').style.opacity = ratioLeft
+  document.getElementById('yt-right').style.opacity = ratioRight
+
+  document.getElementById('yt-left').style.transform = 'scale(' + (0.75 + ratioLeft * 0.5) + ')'
+  document.getElementById('yt-right').style.transform = 'scale(' + (0.75 + ratioRight * 0.5) + ')'
+
+}
+
+function ease(x) {
+  return x < 0.5 ? 8 * x * x * x * x : 1 - Math.pow(-2 * x + 2, 4) / 2
+}
+
+function loop() {
+  applyDiff()
+  draw()
+  video.requestVideoFrameCallback(loop)
+  count++
+}
+draw()
+
+function applyDiff() {
+  helperCtx.drawImage(video, 0, 0, dimX, dimY)
+  const image = helperCtx.getImageData(0, 0, dimX, dimY)
+  const imageData = image.data
+  const motionData = new Uint8ClampedArray(imageData.length)
+
+  sumLeft = 0
+  sumRight = 0
+
+  for (let row = 0; row < dimY; row++) {
+    for (let col = 0; col < dimX; col++) {
+      let i = (row * dimX + col) * 4
+      let val = 1 - (imageData[i]/3 + imageData[i+1]/3 + imageData[i+2]/3)/255
+      let diff = Math.abs(prevVideo[row][col] - val)
+      if (!firstFrame) {
+          currentMotion[row][dimX - col] = diff
+
+          if (col > dimX/2) {
+            sumLeft += diff
+          } else {
+            sumRight += diff
+          }
+      }
+      motionData[i] = motionData[i+1] = motionData[i+2] = diff * 255
+      motionData[i+3] = 255
+      prevVideo[row][col] = val
+    }
+
+  }
+
+  updateStats(5, sumLeft, statsLeft)
+  updateStats(5, sumRight, statsRight)
+
+  helperCtx.putImageData(new ImageData(motionData, image.width), 0, 0)
+
+  firstFrame = false
+}
+
+document.getElementById('toggle').onclick = function() {
+  const userCameraStarted = Boolean(video.srcObject)
+
+  if (!userCameraStarted) {
+    navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: "user" } })
+    .then(function(stream) {
+      video.srcObject = stream
+      video.onloadedmetadata = function(e) {
+        video.play()
+        video.requestVideoFrameCallback(loop)
+
+        // Start YouTube videos
+        ytLeft && ytLeft.playVideo()
+        ytRight && ytRight.playVideo()
+        isPlaying = true
+      }
+    })
+    .catch(function(err) {
+      console.error(err)
+    })
+  }
+
+  if (isPlaying) {
+    ytLeft && ytLeft.pauseVideo()
+    ytRight && ytRight.pauseVideo()
+    isPlaying = false
+  } else if (userCameraStarted) {
+    ytLeft && ytLeft.playVideo()
+    ytRight && ytRight.playVideo()
+    isPlaying = true
+  }
+
+}
+
+document.body.onmousemove = function () {
+  lastMouseMove = Date.now()
+}
+
+function updatePlayingState(event) {
+  if (ytLeft && ytLeft.getPlayerState() === 0 && ytRight && ytRight.getPlayerState() === 0) {
+    isPlaying = false
+  }
+}
+
+var tag = document.createElement('script')
+tag.src = "https://www.youtube.com/iframe_api"
+var firstScriptTag = document.getElementsByTagName('script')[0]
+firstScriptTag.parentNode.insertBefore(tag, firstScriptTag)
+
+window.onYouTubeIframeAPIReady = function onYouTubeIframeAPIReady() {
+  ytLeft = new YT.Player('yt-left', {
+    height: window.innerWidth * 0.4 * 3/4,
+    width: window.innerWidth * 0.4,
+    videoId: '9aDEq3u5huA',
+    playerVars: {
+      'playsinline': 0, 'controls': 0, 'loop': 1, 'modestbranding': 1
+    }
+  });
+  ytRight = new YT.Player('yt-right', {
+    height: window.innerWidth * 0.4 * 3/4,
+    width: window.innerWidth * 0.4,
+    videoId: '0qanF-91aJo',
+    playerVars: {
+      'playsinline': 0, 'controls': 0, 'loop': 1, 'modestbranding': 1
+    }
+  });
+  ytLeft.addEventListener('onStateChange', updatePlayingState)
+  ytRight.addEventListener('onStateChange', updatePlayingState)
+}
+
+</script>
+</body>
+</html>
