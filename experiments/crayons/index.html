@@ -58,18 +58,19 @@ body.recording:after {
   <script type="module">
     const allHeadTypes = [ 'diamond', 'rect', 'trig', 'ellipse' ]
     const RecordingMode = {
-      None: 0,
-      Layers: 1,
-      File: 2,
-      Columns: 3
+      None: 'None',
+      Layers: 'Layers',
+      File: 'File',
+      Columns: 'Columns'
     }
 
+    const params = new URLSearchParams(document.location.search)
     const config = {
-      recordingMode: RecordingMode.None,
-      invertHorizontal: true,
-      invertColors: false,
-      squad: false,
-      file: false,
+      recordingMode: RecordingMode[params.get('recordingMode')] || RecordingMode.None,
+      invertHorizontal: params.has('invertHorizontal') || true,
+      invertColors: params.has('invertColors') || false,
+      squad: params.has('squad') || false,
+      file: params.has('file') || false,
       headTypes: allHeadTypes,
       headTilt: true,
       recordingSymbol: true,
