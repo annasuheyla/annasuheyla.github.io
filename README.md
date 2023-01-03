@@ -4,7 +4,7 @@
 
 ### Created on Us (`/experiments/`)
 
-Exports from the [https://github.com/annasuheyla/spacejam](spacejam) repository, hosted on public webiste to be able to share links with friends and in project report.
+Exports from the [spacejam](https://github.com/annasuheyla/spacejam) repository, hosted on public webiste to be able to share links with friends and in project report.
 
 ### Dance Therapy (`/dance-therapy/`)
 
